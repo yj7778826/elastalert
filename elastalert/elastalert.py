@@ -450,7 +450,7 @@ class ElastAlerter(object):
         )
 
         try:
-            res = self.thread_data.current_es.count(index=index, doc_type=rule['doc_type'], body=query, ignore_unavailable=True)
+            res = self.thread_data.current_es.count(index=index, doc_type=rule.get('doc_type'), body=query, ignore_unavailable=True)
         except ElasticsearchException as e:
             # Elasticsearch sometimes gives us GIGANTIC error messages
             # (so big that they will fill the entire terminal buffer)
@@ -507,13 +507,13 @@ class ElastAlerter(object):
             if not rule['five']:
                 res = self.thread_data.current_es.deprecated_search(
                     index=index,
-                    doc_type=rule['doc_type'],
+                    doc_type=rule.get('doc_type'),
                     body=query,
                     search_type='count',
                     ignore_unavailable=True
                 )
             else:
-                res = self.thread_data.current_es.deprecated_search(index=index, doc_type=rule['doc_type'],
+                res = self.thread_data.current_es.deprecated_search(index=index, doc_type=rule.get('doc_type'),
                                                                     body=query, size=0, ignore_unavailable=True)
         except ElasticsearchException as e:
             # Elasticsearch sometimes gives us GIGANTIC error messages
@@ -600,10 +600,11 @@ class ElastAlerter(object):
         buffer_time = rule.get('buffer_time', self.buffer_time)
         if rule.get('query_delay'):
             buffer_time += rule['query_delay']
-        for _id, timestamp in rule['processed_hits'].items():
-            if now - timestamp > buffer_time:
-                remove.append(_id)
-        list(map(rule['processed_hits'].pop, remove))
+        if rule.get('processed_hits'):
+            for _id, timestamp in rule['processed_hits'].items():
+                if now - timestamp > buffer_time:
+                    remove.append(_id)
+            list(map(rule['processed_hits'].pop, remove))
 
     def run_query(self, rule, start=None, end=None, scroll=False):
         """ Query for the rule and pass all of the results to the RuleType instance.
@@ -852,9 +853,10 @@ class ElastAlerter(object):
         self.thread_data.current_es = self.es_clients.setdefault(rule['name'], elasticsearch_client(rule))
 
         # If there are pending aggregate matches, try processing them
-        for x in range(len(rule['agg_matches'])):
-            match = rule['agg_matches'].pop()
-            self.add_aggregated_alert(match, rule)
+        if rule.get('agg_matches'):
+            for x in range(len(rule['agg_matches'])):
+                match = rule['agg_matches'].pop()
+                self.add_aggregated_alert(match, rule)
 
         # Start from provided time if it's given
         if starttime:
@@ -1076,6 +1078,8 @@ class ElastAlerter(object):
                         elastalert_logger.info('Rule file %s is now disabled.' % (rule_file))
                         # Remove this rule if it's been disabled
                         self.rules = [rule for rule in self.rules if rule['rule_file'] != rule_file]
+                        self.disabled_rules.append(new_rule)
+                        self.scheduler.pause_job(job_id=new_rule['name'])
                         continue
                 except EAException as e:
                     message = 'Could not load rule %s: %s' % (rule_file, e)
@@ -1686,7 +1690,7 @@ class ElastAlerter(object):
 
         # Send in memory aggregated alerts
         for rule in self.rules:
-            if rule['agg_matches']:
+            if rule.get('agg_matches'):
                 for aggregation_key_value, aggregate_alert_time in rule['aggregate_alert_time'].items():
                     if ts_now() > aggregate_alert_time:
                         alertable_matches = [
