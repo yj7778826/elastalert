@@ -20,6 +20,7 @@ from socket import error
 import dateutil.tz
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.base import JobLookupError
 from croniter import croniter
 from elasticsearch.exceptions import ConnectionError
 from elasticsearch.exceptions import ElasticsearchException
@@ -964,7 +965,11 @@ class ElastAlerter(object):
     def init_rule(self, new_rule, new=True):
         ''' Copies some necessary non-config state from an exiting rule to a new rule. '''
         if not new:
-            self.scheduler.remove_job(job_id=new_rule['name'])
+            try:
+                self.scheduler.remove_job(job_id=new_rule['name'])
+            except JobLookupError:
+                elastalert_logger.warning('Can not find job_id: %s' % new_rule['name'])
+                pass
 
         try:
             self.modify_rule_for_ES5(new_rule)
@@ -1079,9 +1084,8 @@ class ElastAlerter(object):
                     if 'is_enabled' in new_rule and not new_rule['is_enabled']:
                         elastalert_logger.info('Rule file %s is now disabled.' % (rule_file))
                         # Remove this rule if it's been disabled
+                        self.scheduler.remove_job(job_id=new_rule['name'])
                         self.rules = [rule for rule in self.rules if rule['rule_file'] != rule_file]
-                        self.disabled_rules.append(new_rule)
-                        self.scheduler.pause_job(job_id=new_rule['name'])
                         continue
                 except EAException as e:
                     message = 'Could not load rule %s: %s' % (rule_file, e)
