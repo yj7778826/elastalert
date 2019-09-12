@@ -1065,6 +1065,8 @@ class ElastAlerter(object):
             if rule_file not in new_rule_hashes:
                 # Rule file was deleted
                 elastalert_logger.info('Rule file %s not found, stopping rule execution' % (rule_file))
+                old_rule = [rule for rule in self.rules if rule['rule_file'] == rule_file]
+                self.scheduler.remove_job(job_id=old_rule[0]['name'])
                 self.rules = [rule for rule in self.rules if rule['rule_file'] != rule_file]
                 continue
             if hash_value != new_rule_hashes[rule_file]:
